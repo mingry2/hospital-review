@@ -6,7 +6,10 @@ import com.example.hospitalreview.domain.UserJoinRequest;
 import com.example.hospitalreview.exception.ErrorCode;
 import com.example.hospitalreview.exception.HospitalReviewAppException;
 import com.example.hospitalreview.repository.UserRepository;
+import com.example.hospitalreview.utils.JwtTokenUtil;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 // 비지니스 로직이 들어가는 곳
@@ -15,6 +18,27 @@ import org.springframework.stereotype.Service;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final BCryptPasswordEncoder encoder;
+
+    @Value("${jwt.token.secret}") // yml 에서 가져올 수 있음 key를 숨길 수 있음
+    private String secretKey;
+    private long expiredTimeMs = 1000 * 60 * 60; // = 1시간
+
+    public String login(String userName, String password) {
+        // userName 있는지 여부 확인
+        // 없으면 NOT_FOUND 에러 발생
+        User user = userRepository.findByUserName(userName)
+                .orElseThrow(() -> new HospitalReviewAppException(ErrorCode.NOT_FOUND,String.format("%s는 가입된 적이 없습니다.", userName)));
+        // password 일치 하는지 여부 확인
+        if (!encoder.matches(password, user.getPassword())) {
+            throw new HospitalReviewAppException(ErrorCode.INVALID_PASSWORD,String.format("userName 또는 password가 잘 못 되었습니다."));
+        }
+        // 두 가지 확인 중 예외 안났으면 Token 발행
+
+        // 소스코드에 토큰 key가 들어가면 절! 대! 안된다
+        // return JwtTokenUtil.createToken(userName,"hello", 1000 * 60 * 60);
+        return JwtTokenUtil.createToken(userName, secretKey, expiredTimeMs);
+    }
 
     public UserDto join(UserJoinRequest request) {
         // 비즈니스 로직 - 회원 가입
@@ -32,12 +56,12 @@ public class UserService {
 
         // 중복이 아니라면 회원가입 .save()
         // savedUser -> 가입된 User
-        User savedUser = userRepository.save(request.toEntity());
-
+        User savedUser = userRepository.save(request.toEntity(encoder.encode(request.getPassword())));
         return UserDto.builder()
                 .id(savedUser.getId())
                 .userName(savedUser.getUserName())
                 .email(savedUser.getEmailAddress())
                 .build();
     }
+
 }
